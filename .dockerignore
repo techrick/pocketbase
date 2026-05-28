@@ -1,0 +1,6 @@
+.git
+.builds
+pb_data
+*_data
+ui/node_modules
+.github
