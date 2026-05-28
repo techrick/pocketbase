@@ -38,10 +38,11 @@ jobs:
           echo "tag=${REF}"       >> "$GITHUB_OUTPUT"
           echo "version=${REF#v}" >> "$GITHUB_OUTPUT"
 
+      # NOTE: do NOT checkout the tag — synced tags point at upstream commits
+      # that don't contain this Dockerfile. We build from the workflow ref
+      # (which has the Dockerfile) and fetch the binary by VERSION build-arg.
       - name: Checkout
         uses: actions/checkout@v6
-        with:
-          ref: ${{ steps.t.outputs.tag }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -61,6 +62,7 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository }}
+          flavor: latest=false
           tags: |
             type=semver,pattern={{version}},value=${{ steps.t.outputs.tag }}
             type=semver,pattern={{major}}.{{minor}},value=${{ steps.t.outputs.tag }}

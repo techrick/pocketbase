@@ -1,21 +1,29 @@
-# ---- build stage (runs NATIVELY on the runner arch, cross-compiles) ----
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
-ARG TARGETOS
-ARG TARGETARCH
-ARG TARGETVARIANT          # e.g. "v7" for linux/arm/v7 -> GOARM=7
-ARG VERSION=dev
-WORKDIR /src
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOARM=${TARGETVARIANT#v} go build \
-    -ldflags="-s -w -X github.com/pocketbase/pocketbase.Version=${VERSION}" \
-    -o /pocketbase ./examples/base
+# Repackage the official upstream PocketBase release binary into a container
+# image. The synced tags point at upstream commits (which don't carry this
+# Dockerfile), so we fetch the published binary by version+arch instead of
+# building from source. VERSION is passed as a build-arg (without leading "v").
 
-# ---- runtime stage (target arch; only apk runs emulated here) ----
+# ---- fetch stage (runs NATIVELY on the runner arch; only downloads a file) ----
+FROM --platform=$BUILDPLATFORM alpine:latest AS fetch
+ARG VERSION=0.0.0
+ARG TARGETARCH
+ARG TARGETVARIANT
+RUN apk add --no-cache wget ca-certificates unzip
+RUN set -eux; \
+    case "${TARGETARCH}${TARGETVARIANT}" in \
+      amd64) PB_ARCH=amd64 ;; \
+      arm64) PB_ARCH=arm64 ;; \
+      armv7) PB_ARCH=armv7 ;; \
+      *) echo "unsupported platform: ${TARGETARCH}${TARGETVARIANT}"; exit 1 ;; \
+    esac; \
+    wget -O /tmp/pb.zip \
+      "https://github.com/pocketbase/pocketbase/releases/download/v${VERSION}/pocketbase_${VERSION}_linux_${PB_ARCH}.zip"; \
+    unzip /tmp/pb.zip -d /pb/
+
+# ---- runtime stage (target arch) ----
 FROM alpine:latest
 RUN apk add --no-cache ca-certificates tzdata
-COPY --from=builder /pocketbase /pb/pocketbase
+COPY --from=fetch /pb/pocketbase /pb/pocketbase
 EXPOSE 8090
 VOLUME /pb/pb_data
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
